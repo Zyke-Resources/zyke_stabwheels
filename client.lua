@@ -146,9 +146,16 @@ local function stabWheel(target)
     TaskPlayAnim(ped, animDict, animClip, 8.0, -9.0, 1.8, 15, 1.0, false, false, false)
     Wait(550)
 
-    if (DoesEntityExist(target.vehicle) and not IsVehicleTyreBurst(target.vehicle, target.index, false)) then
-        SetVehicleTyreBurst(target.vehicle, target.index, false, 100.0)
-        Z.notify("wheelBursted")
+    local vehicle = target.vehicle
+
+    if (DoesEntityExist(vehicle) and not IsVehicleTyreBurst(vehicle, target.index, false)) then
+        -- Bulletproof tires still get the stab, so the player finds out by trying
+        if (GetVehicleTyresCanBurst(vehicle)) then
+            SetVehicleTyreBurst(vehicle, target.index, false, 100.0)
+            Z.notify("wheelBursted")
+        else
+            Z.notify("wheelBulletproof")
+        end
     end
 
     Wait(750)

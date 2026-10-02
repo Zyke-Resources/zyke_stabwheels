@@ -1,6 +1,7 @@
 return {
     -- Notifications
     ["wheelBursted"] = {msg = "Neumático rajado.", type = "success"},
+    ["wheelBulletproof"] = {msg = "El neumático está reforzado y no se pincha.", type = "error"},
 
     -- Prompts
     ["stabWheel"] = "Rajar neumático",
