@@ -8,11 +8,19 @@ version "1.0.4"
 shared_scripts {
     "@zyke_lib/imports.lua",
     "shared/config.lua",
+    "shared/functions.lua",
 }
 
 client_scripts {
     "client/movement.lua",
     "client/main.lua",
+}
+
+server_scripts {
+    "server/can_checks.lua",
+    "server/hooks.lua",
+    "server/sounds.lua",
+    "server/main.lua",
 }
 
 files {

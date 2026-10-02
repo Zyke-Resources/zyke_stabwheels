@@ -25,8 +25,9 @@ end
 ---@param coords vector3
 ---@param heading number
 ---@param vehicle integer @ Entity the walk is aborted for once it no longer exists
+---@param isCancelled? fun(): boolean @ Polled during the walk, stops it once it returns true
 ---@return boolean arrived
-function WalkPedToCoords(ped, coords, heading, vehicle)
+function WalkPedToCoords(ped, coords, heading, vehicle, isCancelled)
     local distance = GetHorizontalDistance(GetEntityCoords(ped), coords)
     if (distance <= arriveTolerance) then return true end
 
@@ -36,12 +37,14 @@ function WalkPedToCoords(ped, coords, heading, vehicle)
 
     while (GetScriptTaskStatus(ped, goStraightTask) ~= 7 and GetGameTimer() < deadline) do
         if (not DoesEntityExist(vehicle) or IsEntityDead(ped) or IsPedRagdoll(ped) or IsPedInAnyVehicle(ped, false)) then break end
+        if (isCancelled and isCancelled()) then break end
 
         Wait(50)
     end
 
-    -- Timed out or interrupted, such as by a wall beside the vehicle
+    -- Timed out, cancelled or interrupted, such as by a wall beside the vehicle
     if (GetScriptTaskStatus(ped, goStraightTask) ~= 7) then ClearPedTasks(ped) end
+    if (isCancelled and isCancelled()) then return false end
 
     local settleDeadline = GetGameTimer() + settleTimeout
 
