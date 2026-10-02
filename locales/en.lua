@@ -1,7 +1,10 @@
 return {
     -- Notifications
-    ["wheelBursted"] = {msg = "You slashed the vehicle tire.", type = "success"},
+    ["wheelBursted"] = {msg = "Tire slashed.", type = "success"},
 
-    -- Misc
-    ["stabWheel"] = "~g~[E] ~w~Stab wheel",
+    -- Prompts
+    ["stabWheel"] = "Slash tire",
+
+    -- Keybinds
+    ["keybind:stabWheel"] = "Slash a vehicle tire",
 }

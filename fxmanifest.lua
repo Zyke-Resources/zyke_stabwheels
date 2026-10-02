@@ -13,8 +13,8 @@ files {
 }
 
 loader {
-    "client.lua",
     "shared:config.lua",
+    "client.lua",
 }
 
 dependency "zyke_lib"
