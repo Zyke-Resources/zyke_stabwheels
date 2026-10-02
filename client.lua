@@ -1,5 +1,6 @@
 -- Marks every intact tire on nearby vehicles while a slashing weapon is held; aiming at one shows
--- the stab key there through zyke_lib interest points
+-- the stab key there through zyke_lib interest points, and pressing it walks the player up beside
+-- the tire to stab it
 
 ---@class StabWheel
 ---@field bone string
@@ -8,6 +9,7 @@
 ---@class StabTarget
 ---@field vehicle integer
 ---@field index integer
+---@field offset vector3 @ Hub position local to the vehicle
 
 local stabKey = "zyke_stabwheels_stab"
 local markerSet = "wheels"
@@ -34,7 +36,26 @@ local refreshInterval = 250
 -- A line of sight ray ending this close to a hub still sees it, since the tire wall sits in between
 local sightTolerance = 0.5
 local maxSpeed = 0.5
+-- Metres out from the hub the player stands, so the stab lands on the tire wall
+local standOffset = 0.7
+-- Horizontal metres from the stand spot that count as arrived once the walk has finished
+local arriveTolerance = 0.3
+local goStraightTask = joaat("SCRIPT_TASK_GO_STRAIGHT_TO_COORD")
+-- Ped speed under which the player counts as stood still before turning
+local stillSpeed = 0.1
+local settleTimeout = 500
+-- The walk over gives up after this long plus a second per metre
+local walkBaseMs = 2000
+-- Degrees off the tire the player may face before the turn snaps the rest
+local headingTolerance = 10.0
+local turnTimeout = 1000
 local animDict, animClip = "melee@knife@streamed_core_fps", "ground_attack_on_spot"
+-- Milliseconds into the stab the blade meets the tire
+local stabHitMs = 550
+-- Milliseconds into the stab it blends out, before the clip's idle tail
+local stabExitMs = 1300
+-- Lower is a slower, smoother blend back to standing once the stab ends
+local animBlendOut = 3.0
 
 ---@type table<integer, true> @ Weapon hash -> can slash
 local slashWeapons = {}
@@ -98,11 +119,13 @@ local function addWheelMarkers(markers, vehicle, pedCoords, origin, ped)
             if (#(hub - pedCoords) <= markerDistance and isHubVisible(hub, origin, ped)) then
                 local id = vehicle .. ":" .. wheel.index
 
-                targets[id] = {vehicle = vehicle, index = wheel.index}
+                local offset = GetOffsetFromEntityGivenWorldCoords(vehicle, hub.x, hub.y, hub.z)
+
+                targets[id] = {vehicle = vehicle, index = wheel.index, offset = offset}
                 markers[#markers + 1] = {
                     id = id,
                     entity = vehicle,
-                    offset = GetOffsetFromEntityGivenWorldCoords(vehicle, hub.x, hub.y, hub.z),
+                    offset = offset,
                     key = "+" .. stabKey,
                     label = T("stabWheel"),
                     reach = stabReach,
@@ -134,19 +157,105 @@ local function refreshMarkers()
     Z.setInterestPoints(markerSet, markers, {aim = true})
 end
 
+---@param from vector3
+---@param to vector3
+---@return number distance
+local function getHorizontalDistance(from, to)
+    return #(from.xy - to.xy)
+end
+
+-- Beside the tire on the outside of the vehicle, so middle wheels work the same as the corners;
+-- on the ground, since the walk task judges arrival against the ped's feet rather than the hub
+---@param target StabTarget
+---@return vector3 standCoords
+local function getStandCoords(target)
+    local offset = target.offset
+    local side = offset.x >= 0.0 and 1.0 or -1.0
+    local coords = GetOffsetFromEntityInWorldCoords(target.vehicle, offset.x + side * standOffset, offset.y, offset.z)
+    local found, groundZ = GetGroundZFor_3dCoord(coords.x, coords.y, coords.z + 1.0, false)
+
+    return vector3(coords.x, coords.y, found and groundZ or coords.z)
+end
+
+-- The walk task is left to finish on its own, so the ped brakes on the spot and turns to the given
+-- heading; cutting it short at a distance keeps the walking momentum and overshoots the tire
+---@param ped integer
+---@param coords vector3
+---@param heading number
+---@param vehicle integer
+---@return boolean arrived
+local function walkToCoords(ped, coords, heading, vehicle)
+    local distance = getHorizontalDistance(GetEntityCoords(ped), coords)
+    if (distance <= arriveTolerance) then return true end
+
+    local deadline = GetGameTimer() + walkBaseMs + math.floor(distance * 1000)
+    TaskGoStraightToCoord(ped, coords.x, coords.y, coords.z, 1.0, -1, heading, 0.1)
+    Wait(0)
+
+    while (GetScriptTaskStatus(ped, goStraightTask) ~= 7 and GetGameTimer() < deadline) do
+        if (not DoesEntityExist(vehicle) or IsEntityDead(ped) or IsPedRagdoll(ped) or IsPedInAnyVehicle(ped, false)) then break end
+
+        Wait(50)
+    end
+
+    -- Timed out or interrupted, such as by a wall beside the vehicle
+    if (GetScriptTaskStatus(ped, goStraightTask) ~= 7) then ClearPedTasks(ped) end
+
+    local settleDeadline = GetGameTimer() + settleTimeout
+
+    while (GetEntitySpeed(ped) > stillSpeed and GetGameTimer() < settleDeadline) do
+        Wait(0)
+    end
+
+    return getHorizontalDistance(GetEntityCoords(ped), coords) <= arriveTolerance
+end
+
+---@param ped integer
+---@param heading number
+---@return number difference @ Degrees either way
+local function getHeadingDifference(ped, heading)
+    return math.abs((GetEntityHeading(ped) - heading + 540.0) % 360.0 - 180.0)
+end
+
+-- The turn task alone can stop a few degrees short or get interrupted, so the rest is snapped
+---@param ped integer
+---@param coords vector3
+local function turnToFace(ped, coords)
+    local pedCoords = GetEntityCoords(ped)
+    local heading = GetHeadingFromVector_2d(coords.x - pedCoords.x, coords.y - pedCoords.y)
+    if (getHeadingDifference(ped, heading) <= headingTolerance) then return end
+
+    local deadline = GetGameTimer() + turnTimeout
+    TaskTurnPedToFaceCoord(ped, coords.x, coords.y, coords.z, turnTimeout)
+
+    while (getHeadingDifference(ped, heading) > headingTolerance and GetGameTimer() < deadline) do
+        Wait(50)
+    end
+
+    SetEntityHeading(ped, heading)
+end
+
 ---@param target StabTarget
 local function stabWheel(target)
-    -- Set before the dict load yields, so a second press can not start another stab
-    stabbing = true
-    Z.clearInterestPoints(markerSet)
+    local vehicle = target.vehicle
+    if (not Z.loadDict(animDict)) then return end
 
     local ped = PlayerPedId()
-    if (not Z.loadDict(animDict)) then stabbing = false return end
+    local offset = target.offset
+    local hub = GetOffsetFromEntityInWorldCoords(vehicle, offset.x, offset.y, offset.z)
+    local standCoords = getStandCoords(target)
+    local heading = GetHeadingFromVector_2d(hub.x - standCoords.x, hub.y - standCoords.y)
 
-    TaskPlayAnim(ped, animDict, animClip, 8.0, -9.0, 1.8, 15, 1.0, false, false, false)
-    Wait(550)
+    -- A blocked walk still stabs from wherever the player stopped, as long as the tire is in reach
+    local arrived = walkToCoords(ped, standCoords, heading, vehicle)
+    if (not arrived and (not DoesEntityExist(vehicle) or getHorizontalDistance(GetEntityCoords(ped), hub) > stabReach)) then return end
+    if (not canStabVehicle(vehicle) or not slashWeapons[GetSelectedPedWeapon(ped)]) then return end
 
-    local vehicle = target.vehicle
+    turnToFace(ped, hub)
+
+    -- Blended out after the stab rather than cut off with a task clear, since the clip idles at the end
+    TaskPlayAnim(ped, animDict, animClip, 8.0, animBlendOut, -1, 0, 0.0, false, false, false)
+    Wait(stabHitMs)
 
     if (DoesEntityExist(vehicle) and not IsVehicleTyreBurst(vehicle, target.index, false)) then
         -- Bulletproof tires still get the stab, so the player finds out by trying
@@ -158,10 +267,9 @@ local function stabWheel(target)
         end
     end
 
-    Wait(750)
-    ClearPedTasks(ped)
+    Wait(stabExitMs - stabHitMs)
+    StopAnimTask(ped, animDict, animClip, animBlendOut)
     RemoveAnimDict(animDict)
-    stabbing = false
 end
 
 local function onStabPressed()
@@ -172,9 +280,14 @@ local function onStabPressed()
     if (not canPedStab(PlayerPedId()) or not canStabVehicle(target.vehicle)) then return end
     if (IsVehicleTyreBurst(target.vehicle, target.index, false)) then return end
 
-    -- Key callbacks come in from zyke_lib and the stab yields until the animation is done
+    -- Set before anything yields, so a second press can not start another stab
+    stabbing = true
+    Z.clearInterestPoints(markerSet)
+
+    -- Key callbacks come in from zyke_lib and the stab yields through the walk and the animation
     CreateThread(function()
         stabWheel(target)
+        stabbing = false
     end)
 end
 
