@@ -7,12 +7,12 @@ version "1.0.4"
 
 shared_scripts {
     "@zyke_lib/imports.lua",
-    "shared/unlocked/config.lua",
+    "shared/config.lua",
 }
 
 client_scripts {
-    "client/locked/movement.lua",
-    "client/locked/main.lua",
+    "client/movement.lua",
+    "client/main.lua",
 }
 
 files {
@@ -20,8 +20,3 @@ files {
 }
 
 dependency "zyke_lib"
-
-escrow_ignore {
-    "shared/unlocked/**/*",
-    "locales/*",
-}
