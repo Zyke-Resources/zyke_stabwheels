@@ -1,6 +1,7 @@
 -- Marks every intact tire on nearby vehicles while a slashing weapon is held; aiming at one shows
 -- the stab key there through zyke_lib interest points, and pressing it walks the player up beside
--- the tire to stab it. The server validates the hit and bursts the tire on the vehicle's owner
+-- the tire to stab it. With the target interaction a target menu option starts the stab instead
+-- Either way the server validates the hit and bursts the tire on the vehicle's owner
 
 local stabKey = "zyke_stabwheels_stab"
 local cancelKey = "zyke_stabwheels_cancel"
@@ -235,6 +236,23 @@ local function stabWheel(target)
     RemoveAnimDict(animDict)
 end
 
+---@param target StabTarget
+local function startStab(target)
+    -- Set before anything yields, so a second press can not start another stab
+    stabbing = true
+
+    if (markersShown) then
+        markersShown = false
+        Z.clearInterestPoints(markerSet)
+    end
+
+    -- Key and target callbacks come in from zyke_lib and the stab yields through the walk and the animation
+    CreateThread(function()
+        stabWheel(target)
+        stabbing = false
+    end)
+end
+
 local function onStabPressed()
     -- Read at the press, so it is the tire shown on the marker right now
     local id = Z.getAimedInterestPoint(markerSet)
@@ -252,23 +270,66 @@ local function onStabPressed()
         return
     end
 
-    -- Set before anything yields, so a second press can not start another stab
-    stabbing = true
-    markersShown = false
-    Z.clearInterestPoints(markerSet)
+    startStab(target)
+end
 
-    -- Key callbacks come in from zyke_lib and the stab yields through the walk and the animation
-    CreateThread(function()
-        stabWheel(target)
-        stabbing = false
-    end)
+-- The intact tire in marker range closest to the point
+---@param ped integer
+---@param vehicle integer
+---@param point vector3
+---@return StabTarget? target
+local function getClosestTire(ped, vehicle, point)
+    local pedCoords = GetEntityCoords(ped)
+    local closest, closestDistance
+
+    for i = 1, #StabWheels do
+        local wheel = StabWheels[i]
+        local boneIndex = GetEntityBoneIndexByName(vehicle, wheel.bone)
+
+        if (boneIndex ~= -1 and not IsVehicleTyreBurst(vehicle, wheel.index, false)) then
+            local hub = GetWorldPositionOfEntityBone(vehicle, boneIndex)
+            local distance = #(hub - point)
+
+            if (#(hub - pedCoords) <= markerDistance and (not closestDistance or distance < closestDistance)) then
+                closest = {vehicle = vehicle, index = wheel.index, offset = GetOffsetFromEntityGivenWorldCoords(vehicle, hub.x, hub.y, hub.z)}
+                closestDistance = distance
+            end
+        end
+    end
+
+    return closest
+end
+
+---@param vehicle integer
+---@return boolean canInteract
+local function canTargetVehicle(vehicle)
+    local ped = PlayerPedId()
+    if (not canPedStab(ped)) then return false end
+    if (not Config.Settings.alwaysShowMarkers and GetStabBlockReason(vehicle)) then return false end
+
+    return getClosestTire(ped, vehicle, GetEntityCoords(ped)) ~= nil
+end
+
+---@param data table | integer @ ox_target passes a table with the entity and the aimed coords, qb-target only the entity
+local function onTargetSelected(data)
+    local vehicle = type(data) == "table" and data.entity or data
+    local ped = PlayerPedId()
+    if (not DoesEntityExist(vehicle) or not canPedStab(ped)) then return end
+
+    -- Without aimed coords the tire closest to the player is slashed
+    local target = getClosestTire(ped, vehicle, type(data) == "table" and data.coords or GetEntityCoords(ped))
+    if (not target) then return end
+
+    local reason = GetStabBlockReason(vehicle)
+    if (reason) then Z.notify(reason) return end
+
+    startStab(target)
 end
 
 local function onCancelPressed()
     if (stabbing) then cancelled = true end
 end
 
-Z.registerKey(stabKey, "E", T("keybind:stabWheel"), onStabPressed)
 Z.registerKey(cancelKey, "X", T("keybind:cancelStab"), onCancelPressed)
 Z.registerKey(cancelMouseKey, "MOUSE_RIGHT", T("keybind:cancelStab"), onCancelPressed, nil, "mouse_button")
 
@@ -289,6 +350,30 @@ RegisterNetEvent("zyke_stabwheels:BurstTire", function(netId, tireIndex, alarmSe
 end)
 
 CreateThread(function()
+    -- zyke_lib picks the target system while it loads
+    while (not HasLoaderFinished) do Wait(100) end
+
+    if (Config.Settings.interaction == "target") then
+        local targetId = Z.target.addGlobalVehicle({
+            distance = markerDistance,
+            options = {
+                {
+                    icon = "fas fa-scissors",
+                    label = stabLabel,
+                    canInteract = canTargetVehicle,
+                    onSelect = onTargetSelected,
+                },
+            },
+        })
+
+        if (targetId) then return end
+
+        print(("^3[%s] interaction is set to \"target\" but neither ox_target nor qb-target is started, using interaction points^7"):format(ResName))
+    end
+
+    -- Only registered for interaction points, so target mode does not list a key that does nothing
+    Z.registerKey(stabKey, "E", T("keybind:stabWheel"), onStabPressed)
+
     while (true) do
         refreshMarkers()
         Wait(refreshInterval)

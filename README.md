@@ -5,6 +5,8 @@
 ## Usage
 Hold a slashing weapon from `Config.Settings.weapons` and aim at a tire marker, then press the stab keybind (E by default). The player walks up beside the tire and stabs it. Cancel the walk with X, right mouse or the movement keys. With `alwaysShowMarkers` on, tires that can't be slashed still get a marker that says why. Bulletproof tires take the stab but don't burst.
 
+Set `Config.Settings.interaction` to `"target"` to use a "Slash tire" option in ox_target or qb-target instead of the tire markers. With ox_target the aimed tire is slashed; qb-target slashes the tire closest to the player. Without a target resource started it falls back to the markers.
+
 Every slash is validated on the server and the tire is burst on the client that owns the vehicle, so everyone sees it go flat. Locked vehicles sound their alarm, configured under `Config.Settings.alarm`.
 
 ### Sounds

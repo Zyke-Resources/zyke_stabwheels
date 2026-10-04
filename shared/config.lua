@@ -14,6 +14,11 @@ Config.Settings = {
         ["weapon_stone_hatchet"] = true,
     },
 
+    -- How players pick a tire to slash:
+    -- "point" shows the stab key on each tire through zyke_lib interest points
+    -- "target" adds a slash option to the target menu instead, needs ox_target or qb-target and falls back to points without one
+    interaction = "point",
+
     -- true marks every tire while a slashing weapon is out; a tire that can't be slashed says why on its
     -- marker, and shakes with a notification when used. false only marks tires that can be slashed right now
     alwaysShowMarkers = true,
