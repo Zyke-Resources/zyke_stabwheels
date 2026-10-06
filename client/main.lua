@@ -23,6 +23,10 @@ local blockedOpacity = 0.5
 local cancelDeflection = 0.5
 -- Metres out from the hub the player stands, so the stab lands on the tire wall
 local standOffset = 0.7
+-- Metres from the vehicle's centreline a hub still counts as a centre wheel, such as on a bike
+local centreWidth = 0.2
+-- Horizontal length of the vehicle's right vector under which it lies on its side
+local minOutward = 0.5
 local animDict, animClip = "melee@knife@streamed_core_fps", "ground_attack_on_spot"
 -- Milliseconds into the stab the blade meets the tire
 local stabHitMs = 550
@@ -137,15 +141,27 @@ end
 
 -- Beside the tire on the outside of the vehicle, so middle wheels work the same as the corners;
 -- on the ground, since the walk task judges arrival against the ped's feet rather than the hub
+-- Bike wheels sit on the centreline and have no outside, so the player stays on the side they came from
 ---@param target StabTarget
+---@param hub vector3
+---@param pedCoords vector3
 ---@return vector3 standCoords
-local function getStandCoords(target)
-    local offset = target.offset
-    local side = offset.x >= 0.0 and 1.0 or -1.0
-    local coords = GetOffsetFromEntityInWorldCoords(target.vehicle, offset.x + side * standOffset, offset.y, offset.z)
-    local found, groundZ = GetGroundZFor_3dCoord(coords.x, coords.y, coords.z + 1.0, false)
+local function getStandCoords(target, hub, pedCoords)
+    local _, right = GetEntityMatrix(target.vehicle)
+    local toPed = pedCoords - hub
+    local offsetX = target.offset.x
+    local side = math.abs(offsetX) > centreWidth and offsetX or (toPed.x * right.x + toPed.y * right.y + toPed.z * right.z)
+    -- Flattened, so a bike leaning on its stand does not pull the spot in towards the wheel
+    local outward = right.xy * (side >= 0.0 and 1.0 or -1.0)
 
-    return vector3(coords.x, coords.y, found and groundZ or coords.z)
+    -- A bike lying on its side has its right vector pointing up, so the player's own direction is used
+    if (#outward < minOutward) then outward = toPed.xy end
+    if (#outward < 0.01) then outward = vector2(1.0, 0.0) end
+
+    local coords = hub.xy + outward / #outward * standOffset
+    local found, groundZ = GetGroundZFor_3dCoord(coords.x, coords.y, hub.z + 1.0, false)
+
+    return vector3(coords.x, coords.y, found and groundZ or hub.z)
 end
 
 -- The cancel keys set the flag; walking off with the movement keys sets it too, so it holds once
@@ -166,7 +182,7 @@ local function moveToTire(target)
     local vehicle = target.vehicle
     local offset = target.offset
     local hub = GetOffsetFromEntityInWorldCoords(vehicle, offset.x, offset.y, offset.z)
-    local standCoords = getStandCoords(target)
+    local standCoords = getStandCoords(target, hub, GetEntityCoords(ped))
     local heading = GetHeadingFromVector_2d(hub.x - standCoords.x, hub.y - standCoords.y)
 
     cancelled = false
