@@ -29,8 +29,9 @@ local function validateSlash(plyId, vehicle, tireIndex)
     if (GetVehiclePedIsIn(ped, false) ~= 0 or not IsSlashWeapon(GetSelectedPedWeapon(ped))) then return "stabFailed" end
     if (GetPlayerRoutingBucket(plyId) ~= GetEntityRoutingBucket(vehicle)) then return "stabFailed" end
     if (#(GetEntityCoords(ped) - GetEntityCoords(vehicle)) > maxDistance) then return "stabFailed" end
-    if (IsVehicleTyreBurst(vehicle, tireIndex, false)) then return "stabFailed" end
 
+    -- Burst tires are left to the stabbing client; the server reads tire state by wheel order rather
+    -- than tire index, so a bike's burst rear tire reads as its front one
     local reason = GetStabBlockReason(vehicle)
     if (reason) then return reason end
 
