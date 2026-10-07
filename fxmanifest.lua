@@ -3,7 +3,7 @@ game "gta5"
 author "https://discord.zykeresources.com"
 description "Slash vehicle tires with melee weapons"
 lua54 "yes"
-version "2.0.0"
+version "2.0.1"
 
 shared_scripts {
     "@zyke_lib/imports.lua",
