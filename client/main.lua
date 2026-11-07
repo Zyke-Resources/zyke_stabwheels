@@ -36,11 +36,10 @@ local stabExitMs = 1300
 local animBlendOut = 3.0
 local requestTimeout = 5000
 
-local stabLabel = T("stabWheel")
----@type table<string, string> @ Block reason -> marker hint
+---@type table<string, string> @ Block reason -> marker hint locale key
 local reasonHints = {
-    vehicleProtected = T("hint:vehicleProtected"),
-    vehicleMoving = T("hint:vehicleMoving"),
+    vehicleProtected = "hint:vehicleProtected",
+    vehicleMoving = "hint:vehicleMoving",
 }
 
 ---@type table<string, StabTarget>
@@ -48,6 +47,9 @@ local targets = {}
 local stabbing = false
 local cancelled = false
 local markersShown = false
+local stabKeyRegistered = false
+---@type integer | nil
+local vehicleTargetId
 
 ---@param ped integer
 ---@return boolean canStab
@@ -77,6 +79,9 @@ end
 ---@param origin vector3
 ---@param ped integer
 local function addWheelMarkers(markers, vehicle, reason, pedCoords, origin, ped)
+    local label = T("stabWheel")
+    local hint = reason and reasonHints[reason] and T(reasonHints[reason]) or nil
+
     for i = 1, #StabWheels do
         local wheel = StabWheels[i]
         local boneIndex = GetEntityBoneIndexByName(vehicle, wheel.bone)
@@ -94,8 +99,8 @@ local function addWheelMarkers(markers, vehicle, reason, pedCoords, origin, ped)
                     entity = vehicle,
                     offset = offset,
                     key = "+" .. stabKey,
-                    label = stabLabel,
-                    hint = reason and reasonHints[reason] or nil,
+                    label = label,
+                    hint = hint,
                     opacity = reason and blockedOpacity or nil,
                     reach = stabReach,
                 }
@@ -346,8 +351,46 @@ local function onCancelPressed()
     if (stabbing) then cancelled = true end
 end
 
-Z.registerKey(cancelKey, "X", T("keybind:cancelStab"), onCancelPressed)
-Z.registerKey(cancelMouseKey, "MOUSE_RIGHT", T("keybind:cancelStab"), onCancelPressed, nil, "mouse_button")
+local function registerCancelKeys()
+    Z.registerKey(cancelKey, "X", T("keybind:cancelStab"), onCancelPressed)
+    Z.registerKey(cancelMouseKey, "MOUSE_RIGHT", T("keybind:cancelStab"), onCancelPressed, nil, "mouse_button")
+end
+
+-- Only registered for interaction points, so target mode does not list a key that does nothing
+local function registerStabKey()
+    stabKeyRegistered = true
+
+    Z.registerKey(stabKey, "E", T("keybind:stabWheel"), onStabPressed)
+end
+
+---@return integer | nil targetId
+local function addVehicleTarget()
+    return Z.target.addGlobalVehicle({
+        distance = markerDistance,
+        options = {
+            {
+                icon = "fas fa-scissors",
+                label = T("stabWheel"),
+                canInteract = canTargetVehicle,
+                onSelect = onTargetSelected,
+            },
+        },
+    })
+end
+
+registerCancelKeys()
+
+-- Key descriptions and the target option keep the text they were registered with
+Z.onLanguageChange(function()
+    registerCancelKeys()
+
+    if (stabKeyRegistered) then registerStabKey() end
+    if (not vehicleTargetId) then return end
+
+    Z.target.remove(vehicleTargetId)
+
+    vehicleTargetId = addVehicleTarget()
+end)
 
 -- The server sends this to whoever owns the vehicle, since only the owner's tire damage replicates
 ---@param netId NetId
@@ -370,25 +413,13 @@ CreateThread(function()
     while (not HasLoaderFinished) do Wait(100) end
 
     if (Config.Settings.interaction == "target") then
-        local targetId = Z.target.addGlobalVehicle({
-            distance = markerDistance,
-            options = {
-                {
-                    icon = "fas fa-scissors",
-                    label = stabLabel,
-                    canInteract = canTargetVehicle,
-                    onSelect = onTargetSelected,
-                },
-            },
-        })
-
-        if (targetId) then return end
+        vehicleTargetId = addVehicleTarget()
+        if (vehicleTargetId) then return end
 
         print(("^3[%s] interaction is set to \"target\" but neither ox_target nor qb-target is started, using interaction points^7"):format(ResName))
     end
 
-    -- Only registered for interaction points, so target mode does not list a key that does nothing
-    Z.registerKey(stabKey, "E", T("keybind:stabWheel"), onStabPressed)
+    registerStabKey()
 
     while (true) do
         refreshMarkers()
