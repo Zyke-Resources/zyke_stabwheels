@@ -5,6 +5,13 @@ description "Slash vehicle tires with melee weapons"
 lua54 "yes"
 version "2.0.1"
 
+-- zyke_lib systems this resource uses, zyke_lib only waits for these while it starts
+zyke_systems {
+    "framework",
+    "target",
+    "notification",
+}
+
 shared_scripts {
     "@zyke_lib/imports.lua",
     "shared/config.lua",
