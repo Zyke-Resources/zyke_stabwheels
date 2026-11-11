@@ -3,7 +3,7 @@ game "gta5"
 author "https://discord.zykeresources.com"
 description "Slash vehicle tires with melee weapons"
 lua54 "yes"
-version "2.0.1"
+version "2.0.2"
 
 -- zyke_lib systems this resource uses, zyke_lib only waits for these while it starts
 zyke_systems {
